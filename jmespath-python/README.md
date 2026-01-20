@@ -23,7 +23,7 @@ data = {"people": [{"name": "Alice"}, {"name": "Bob"}]}
 result = expr.search(data)
 print(result)  # ["Alice", "Bob"]
 
-# Search JSON strings directly (fastest for API responses)
+# Search JSON strings directly
 json_data = '{"items": [{"id": 1}, {"id": 2}]}'
 result = search_json("items[*].id", json_data)
 print(result)  # [1, 2]
@@ -48,34 +48,43 @@ print(result)  # [1, 2]
 
 ## Performance Characteristics
 
-The Rust implementation has different performance characteristics compared to the pure Python `jmespath` library:
+The Rust bindings have nuanced performance characteristics due to Python/Rust FFI overhead.
 
-### Where Rust Excels (1.5-2x faster)
+### The Key Factor: Data Structure Complexity
 
-- **Complex filter expressions**: `people[?age > `50`].name`
-- **Multi-step projections**: `people[*].{name: name, age: age}`
-- **JSON string input**: When data is already JSON (API responses, files)
-- **Batch operations**: Processing many documents with the same expression
+The conversion overhead scales with **data complexity**, not just record count:
 
-### Where Python is Faster
+| Data Type | Complex Query | Winner |
+|-----------|---------------|--------|
+| Simple (3 fields/record) | `people[?age > 50].name` | **Rust 1.7x faster** |
+| Nested (with arrays, objects) | Same query | **Python 2x faster** |
 
-- **Simple field access**: `foo.bar`, `items[0]`
-- **Trivial expressions**: `length(@)`, array slicing
+This is because the entire data structure must be converted from Python to Rust before any query runs - even fields the query doesn't touch.
 
-The performance difference is due to the overhead of converting Python objects to Rust types. When data arrives as a JSON string (common with API responses), `search_json()` avoids this overhead and is nearly 2x faster than Python's `json.loads()` + `jmespath.search()`.
+### When Rust Wins
 
-### Recommendation
+1. **Simple, flat data structures** with complex queries (filters, projections, sorts)
+2. **Batch operations** on many small documents - amortizes FFI overhead
+3. **Data originating as JSON strings** - avoids Python object conversion
 
-Use `jmespath-rust` when:
-- Processing JSON API responses or file contents directly
-- Running complex queries with filters, projections, or pipes
-- Batch processing many documents
-- The expression complexity justifies the conversion overhead
+### When Python Wins
 
-Use the pure Python `jmespath` library when:
-- Data is already Python dicts/lists
-- Queries are simple field access
-- Minimal dependencies are preferred
+1. **Nested/complex data structures** - conversion overhead dominates
+2. **Simple queries** on any data - Python operates directly on dicts
+3. **Large documents** with deeply nested fields
+
+### Benchmark Summary (1000 records)
+
+```
+Simple data (3 fields per record):
+  Filter query: Rust 1.7x faster
+
+Complex data (nested objects + arrays):  
+  Filter query: Python 2x faster
+
+Batch ops (1000 small docs):
+  Rust 1.6-2.2x faster
+```
 
 ## Development
 
@@ -87,13 +96,14 @@ source .venv/bin/activate
 pip install maturin pytest
 
 # Build and install in development mode
-maturin develop
+maturin develop --release
 
 # Run tests
 pytest tests/
 
-# Build release wheel
-maturin build --release
+# Run benchmarks
+pip install jmespath
+python benchmarks/benchmark.py
 ```
 
 ## License
