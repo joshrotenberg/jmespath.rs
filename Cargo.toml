@@ -2,6 +2,7 @@
 members = [
     "jmespath",
     "jmespath-cli",
+    "jmespath-python",
 ]
 resolver = "2"
 
